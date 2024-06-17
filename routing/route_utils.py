@@ -2,6 +2,7 @@ from typing import Callable, Any, List, Dict, Union
 import os
 from mimetypes import guess_type
 from srint.core.response import Response
+from srint.core.context import ContextManager
 
 def no_route_found():
     return "Nothing found sorry"
@@ -20,14 +21,8 @@ def calculate_content_length(body):
     return len(body_bytes)  # Length in bytes
 
 
-
-# def map_static(request_path:str):
-#     if os.path.isfile(request_path):
-#         return static_handler
-#     else:
-#         return None
-
-def map_routes(request_path: str, routes: List[Dict[str, Any]])-> Callable[[Any], Any]:
+def map_routes(request_path: str)-> Callable[[Any], Any]:
+    routes = ContextManager.get_config().routes
     for route in routes:
         if route["path"] == request_path:
             return route["handler"]

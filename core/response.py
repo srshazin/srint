@@ -62,7 +62,7 @@ class Response:
         self.body = views_content
 
     
-def make_response(resp_object: Union[str, Response])-> str:
+def make_response(resp_object: Union[str, Response])-> bytes:
     if isinstance(resp_object, Response):
         response = (
             f"HTTP/1.1 {resp_object.status_code} OK\r\n"
