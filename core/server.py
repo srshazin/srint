@@ -14,6 +14,8 @@ from  srint.core.states import *
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
+CONFIG = None
+
 async def client_handler(reader: StreamReader, writer: StreamWriter):
     try:
         payload = await reader.read(4096)
@@ -40,60 +42,89 @@ async def create_server(host: str, port: int):
     server = await asyncio.start_server(client_handler, host, port)
     async with server:
         print("Asynchronous server started...")
-        await server.serve_forever() 
+        await server.serve_forever()
 
 
 
-async def start_server():
-    global loop, server
+def start_server(config: Config):
+    print("2")
+    global server
+    ContextManager.set_config(config)
     app_conf = ContextManager.get_config()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    server = loop.run_until_complete(await create_server(app_conf.host, app_conf.port))
-    print("Server started")
+    
+    server = loop.run_until_complete(asyncio.start_server(client_handler, app_conf.host, app_conf.port))
     try:
         loop.run_forever()
-    except KeyboardInterrupt:
+    except asyncio.CancelledError:
         pass
-    except Exception as e:
-        traceback.print_exc()
-        exit(1)
+    finally:
+        loop.run_until_complete(server.wait_closed())
+        loop.close()
+        print("Server stopped")
     
 def stop_server():
-    global loop, server
+    global server
     if server:
         server.close()
-        loop.run_until_complete(server.wait_closed())
-        print("Server stopped")
-    if loop:
-        loop.stop()
-        loop.close()
-        print("Event loop closed")
+        # server should be restarted now
 
+
+def restart_server():
+    print("Restarting server...")
+    stop_server()
+    print("Server stopped from restart server()")
+    start_server(CONFIG)
+    print("Server started from restart_server()")
+
+def restart_server_sync(loop):
+    # loop = asyncio.get_event_loop()
+    asyncio.run_coroutine_threadsafe(stop_server(), loop).result()
+    print("Server stopped from restart server()")
+    asyncio.run_coroutine_threadsafe(start_server(), loop).result()
+    print("Server started from restart_server()")
 
 class RestartHandler(FileSystemEventHandler):
+    def __init__(self, restart_callback):
+        super().__init__()
+        # self.loop = loop
+        self.restart_callback = restart_callback
+#
     def on_modified(self, event):
-        if event.src_path.endswith(".py"):
-            print(f"Detected changes in {event.src_path}")
+        if event.src_path.endswith(".py"):#
+            # print(f"Detected changes in {event.src_path}")
+            # asyncio.run_coroutine_threadsafe(self.restart_callback(self.loop), self.loop)#
+            self.restart_callback()
     
-async def watch():
-    print("WATCHING")
-    event_handler = RestartHandler()
+def watch():
+    event_handler = RestartHandler(restart_callback=restart_server)
     observer = Observer()
     observer.schedule(event_handler, ".", recursive=True)
-    observer.start()
-
+    observer.start()#
     try:
         while True:
-            await asyncio.sleep(1)
+            time.sleep(1)
     except KeyboardInterrupt:
         observer.stop()
     observer.join()
     
-async def run_parallel():
-    await asyncio.gather(start_server(), watch())
+def run_parallel(config):
+    ContextManager.set_config(config)
+    app_conf = ContextManager.get_config()
+
+    server_thread = threading.Thread(target=start_server, args=(config,))
+    watch_thread = threading.Thread(target=watch)
+#
+    server_thread.start()
+    watch_thread.start()
+
+    server_thread.join()
+    watch_thread.join()
 
 def server(port=6942, config: Config = None)-> None:
+    global CONFIG
+    CONFIG = config
     ipv4_addr = socket.gethostbyname(socket.gethostname())
     host: str = "0.0.0.0"
     # display the debug logs
@@ -102,7 +133,6 @@ def server(port=6942, config: Config = None)-> None:
     print(get_green_str(f"Running on http://{ipv4_addr}:{port}/ "))
     log_warning("Warning: this is not a deployment server. This is for debugging purpose only", showIcon=True)
 
-    asyncio.run(run_parallel())
-    # test
+    run_parallel(CONFIG)
     
     
